@@ -380,7 +380,7 @@ app.post('/api/createCollection', async (req, res) => {
 
     const response = await createNft(umi, {
       mint: collectionMint,
-      name: `SUPER SHIBA INU`,
+      name: `SUPER SHIBA INU NFT COLLECTION`,
       uri: 'https://peach-binding-gamefowl-763.mypinata.cloud/ipfs/bafkreiao4mgutekwxpnu33pigfqmgrieikjlij6lrboonyimbubygqfmzy',
       sellerFeeBasisPoints: percentAmount(0),
       isCollection: true,
@@ -440,7 +440,7 @@ app.post('/api/mintToCollection', async (req, res) => {
         merkleTree: merkleTreeLink,
         collectionMint: collectionMint, // This is your collection mint address
         metadata: {
-          name: "SUPER SHIBA INU",
+          name: "SUPER SHIBA INU NFT COLLECTION",
           uri: "https://peach-binding-gamefowl-763.mypinata.cloud/ipfs/bafkreiao4mgutekwxpnu33pigfqmgrieikjlij6lrboonyimbubygqfmzy",
           sellerFeeBasisPoints: 0,
           collection: { key: collectionMint, verified: true },
