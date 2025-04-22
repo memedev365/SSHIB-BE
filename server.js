@@ -267,6 +267,7 @@ app.post('/api/mint', async (req, res) => {
         collectionMint: collectionMint,
         metadata: {
           name: nftName,
+          symbol: 'SSHIB',
           uri: `https://peach-binding-gamefowl-763.mypinata.cloud/ipfs/bafybeierhdfp4xyd3qx6cb73y5e62vcvswelbrex3uxoygcrlfwrz5yipa/${nftNumber}.json`,
           sellerFeeBasisPoints: 500,
           collection: {
@@ -381,6 +382,7 @@ app.post('/api/createCollection', async (req, res) => {
     const response = await createNft(umi, {
       mint: collectionMint,
       name: `SUPER SHIBA INU NFT COLLECTION`,
+      symbol: 'SSHIB',
       uri: 'https://peach-binding-gamefowl-763.mypinata.cloud/ipfs/bafkreiao4mgutekwxpnu33pigfqmgrieikjlij6lrboonyimbubygqfmzy',
       sellerFeeBasisPoints: percentAmount(0),
       isCollection: true,
@@ -441,6 +443,7 @@ app.post('/api/mintToCollection', async (req, res) => {
         collectionMint: collectionMint, // This is your collection mint address
         metadata: {
           name: "SUPER SHIBA INU NFT COLLECTION",
+          symbol: 'SSHIB',
           uri: "https://peach-binding-gamefowl-763.mypinata.cloud/ipfs/bafkreiao4mgutekwxpnu33pigfqmgrieikjlij6lrboonyimbubygqfmzy",
           sellerFeeBasisPoints: 0,
           collection: { key: collectionMint, verified: true },
