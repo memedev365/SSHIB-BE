@@ -471,6 +471,7 @@ app.post('/api/airdrop', async (req, res) => {
         collectionMint: collectionMint,
         metadata: {
           name: nftName,
+          symbol:'SSHIB',
           uri: `https://peach-binding-gamefowl-763.mypinata.cloud/ipfs/bafybeierhdfp4xyd3qx6cb73y5e62vcvswelbrex3uxoygcrlfwrz5yipa/${nftNumber}.json`,
           sellerFeeBasisPoints: 500,
           collection: {
