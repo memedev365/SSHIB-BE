@@ -15,6 +15,7 @@ const helmet = require('helmet');
 const upload = require('express-fileupload');
 const morgan = require('morgan');
 const txTracker = require('./helper/txTracker');
+const { updateFileOnGitHub } = require('./githubHelper');
 
 const fs = require('fs').promises;
 
@@ -217,7 +218,6 @@ async function getNextMintId() {
   return trackingData.lastMintedId + 1;
 }
 
-// Function to record a new minted ID
 async function recordMintedId(id) {
   const trackingData = await loadMintTrackingData();
   
@@ -230,7 +230,20 @@ async function recordMintedId(id) {
   trackingData.lastMintedId = id;
   
   // Write the updated data back to the file
-  await fs.writeFile(MINT_TRACKING_FILE, JSON.stringify(trackingData, null, 2));
+  const content = JSON.stringify(trackingData, null, 2);
+  await fs.writeFile(MINT_TRACKING_FILE, content);
+  
+  // Update GitHub
+  try {
+    await updateFileOnGitHub(
+      'mint-tracking.json',
+      content,
+      `Update mint tracking: NFT #${id}`
+    );
+  } catch (error) {
+    console.error('Failed to update GitHub:', error);
+    // Implement retry logic if needed
+  }
 }
 
 // Mint endpoint
@@ -422,7 +435,7 @@ app.post('/api/airdrop', async (req, res) => {
     console.log("Received airdrop request_2:", { userWallet, nftId });
     
     // Validate inputs
-    /*if (!userWallet || !nftId) {
+    if (!userWallet || !nftId) {
       return res.status(400).json({
         success: false,
         error: {
@@ -431,7 +444,7 @@ app.post('/api/airdrop', async (req, res) => {
           timestamp: new Date().toISOString()
         }
       });
-    }*/
+    }
     
     // Convert nftId to number if it's a string
     const nftNumber = typeof nftId === 'string' ? parseInt(nftId, 10) : nftId;
@@ -473,7 +486,6 @@ app.post('/api/airdrop', async (req, res) => {
         collectionMint: collectionMint,
         metadata: {
           name: nftName,
-          symbol:'SSHIB',
           uri: `https://peach-binding-gamefowl-763.mypinata.cloud/ipfs/bafybeierhdfp4xyd3qx6cb73y5e62vcvswelbrex3uxoygcrlfwrz5yipa/${nftNumber}.json`,
           sellerFeeBasisPoints: 500,
           collection: {
@@ -552,7 +564,20 @@ async function recordAirdropMintedId(id) {
   // Note: We do NOT update lastMintedId for airdrops
   
   // Write the updated data back to the file
-  await fs.writeFile(MINT_TRACKING_FILE, JSON.stringify(trackingData, null, 2));
+  const content = JSON.stringify(trackingData, null, 2);
+  await fs.writeFile(MINT_TRACKING_FILE, content);
+  
+  // Update GitHub
+  try {
+    await updateFileOnGitHub(
+      'mint-tracking.json',
+      content,
+      `Airdrop update: NFT #${id}`
+    );
+  } catch (error) {
+    console.error('Failed to update GitHub:', error);
+    // Implement retry logic if needed
+  }
 }
 
 app.post('/api/createMerkleTree', async (req, res) => {
