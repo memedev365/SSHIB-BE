@@ -1,6 +1,6 @@
 const fs = require('fs');
 const path = require('path');
-const { updateFileOnGitHub } = require('./githubHelper');
+const { updateFileOnGitHub } = require('../githubHelper');
 
 const TX_LOG_PATH = path.join(__dirname, 'processedTransactions.json');
 
