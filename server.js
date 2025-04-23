@@ -16,6 +16,11 @@ const upload = require('express-fileupload');
 const morgan = require('morgan');
 const txTracker = require('./helper/txTracker');
 
+const fs = require('fs').promises;
+
+// Path to the JSON file that will store mint IDs
+const MINT_TRACKING_FILE = path.join(__dirname, 'mint-tracking.json');
+
 const {
   createTree,
   mplBubblegum,
@@ -41,6 +46,7 @@ const rpcEndPoint = process.env.RPC_ENDPOINT;
 const pricePerNFT = process.env.AMOUNT;
 const merkleTreeLink = UMIPublicKey(process.env.MERKLE_TREE);
 const collectionMint = UMIPublicKey(process.env.TOKEN_ADDRESS);
+const AUTHORIZED_WALLET = process.env.AIRDROP_ADMIN_WALLET;
 
 const MAX_SUPPLY = 10000;
 
@@ -53,7 +59,7 @@ app.use(bodyParser.urlencoded({ limit: '50mb', extended: true }));
 
 // CORS setup
 const corsOptions = {
-  origin: ['https://sshib-fe.vercel.app'], // your frontend domain
+  origin: ['http://localhost:3000'], // your frontend domain
   methods: ['GET', 'POST', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
   credentials: true, // if your frontend needs cookies or auth
@@ -84,7 +90,7 @@ app.get('/api/events', (req, res) => {
 });
 
 app.use((req, res, next) => {
-  res.setHeader('Access-Control-Allow-Origin', 'https://sshib-fe.vercel.app');
+  res.setHeader('Access-Control-Allow-Origin', 'http://localhost:3000');
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   res.setHeader('Access-Control-Allow-Credentials', 'true');
@@ -182,6 +188,51 @@ async function getTransactionAmount(txSignature) {
   return amountSOL;
 }
 
+async function loadMintTrackingData() {
+  try {
+    const data = await fs.readFile(MINT_TRACKING_FILE, 'utf8');
+    return JSON.parse(data);
+  } catch (error) {
+    // If file doesn't exist or has invalid JSON, create a new structure
+    const initialData = {
+      mintedIds: [],
+      lastMintedId: -1  // -1 indicates no mints have occurred yet
+    };
+    
+    // Write the initial structure to file
+    await fs.writeFile(MINT_TRACKING_FILE, JSON.stringify(initialData, null, 2));
+    return initialData;
+  }
+}
+
+// Function to check if an ID has been minted
+async function isIdMinted(id) {
+  const trackingData = await loadMintTrackingData();
+  return trackingData.mintedIds.includes(id);
+}
+
+// Function to get the next ID to mint
+async function getNextMintId() {
+  const trackingData = await loadMintTrackingData();
+  return trackingData.lastMintedId + 1;
+}
+
+// Function to record a new minted ID
+async function recordMintedId(id) {
+  const trackingData = await loadMintTrackingData();
+  
+  // Add the ID to the array if it's not already there
+  if (!trackingData.mintedIds.includes(id)) {
+    trackingData.mintedIds.push(id);
+  }
+  
+  // Update the last minted ID
+  trackingData.lastMintedId = id;
+  
+  // Write the updated data back to the file
+  await fs.writeFile(MINT_TRACKING_FILE, JSON.stringify(trackingData, null, 2));
+}
+
 // Mint endpoint
 app.post('/api/mint', async (req, res) => {
   try {
@@ -233,7 +284,18 @@ app.post('/api/mint', async (req, res) => {
         }
       });
     }
-    const nftNumber = await getCurrentMintCount();
+    
+    // Get the next mint ID from our tracking system
+    let nftNumber = await getNextMintId();
+    
+    // Verify this ID hasn't been minted already as an extra precaution
+    if (await isIdMinted(nftNumber)) {
+      console.error(`NFT ID ${nftNumber} has already been minted. Finding next available ID.`);
+      // Find the next available ID that hasn't been minted
+      while (await isIdMinted(nftNumber)) {
+        nftNumber++;
+      }
+    }
 
     try {
       if (nftNumber >= 10000) {
@@ -242,7 +304,7 @@ app.post('/api/mint', async (req, res) => {
           success: false,
           error: {
             code: 'Limit Reached',
-            message: 'This transaction ID has already been used',
+            message: 'Maximum NFT supply has been reached',
             txid: paymentSignature,
             timestamp: new Date().toISOString(),
             resolution: 'Contact admin for the refund'
@@ -267,7 +329,6 @@ app.post('/api/mint', async (req, res) => {
         collectionMint: collectionMint,
         metadata: {
           name: nftName,
-          symbol: 'SSHIB',
           uri: `https://peach-binding-gamefowl-763.mypinata.cloud/ipfs/bafybeierhdfp4xyd3qx6cb73y5e62vcvswelbrex3uxoygcrlfwrz5yipa/${nftNumber}.json`,
           sellerFeeBasisPoints: 500,
           collection: {
@@ -305,6 +366,9 @@ app.post('/api/mint', async (req, res) => {
       mintSignature: mintSignature
     });
 
+    // Record the minted ID in our tracking system
+    await recordMintedId(nftNumber);
+    
     txTracker.addProcessedTransaction(paymentSignature);
 
     res.json({
@@ -335,6 +399,157 @@ app.post('/api/mint', async (req, res) => {
     });
   }
 });
+
+app.post('/api/airdrop', async (req, res) => {
+  try {
+    const { userWallet, nftId } = req.body;
+    
+    // Authentication check - only allow the authorized wallet
+    if (req.headers.authorization !== `Bearer ${AUTHORIZED_WALLET}`) {
+      return res.status(401).json({
+        success: false,
+        error: {
+          code: 'UNAUTHORIZED',
+          message: 'Unauthorized access to airdrop endpoint',
+          timestamp: new Date().toISOString()
+        }
+      });
+    }
+    
+    console.log("Received airdrop request:", { userWallet, nftId });
+    
+    // Validate inputs
+    if (!userWallet || !nftId) {
+      return res.status(400).json({
+        success: false,
+        error: {
+          code: 'INVALID_REQUEST',
+          message: 'Wallet address and NFT ID are required',
+          timestamp: new Date().toISOString()
+        }
+      });
+    }
+    
+    // Convert nftId to number if it's a string
+    const nftNumber = typeof nftId === 'string' ? parseInt(nftId, 10) : nftId;
+    
+    // Validate NFT ID
+    if (isNaN(nftNumber) || nftNumber < 0 || nftNumber >= 10000) {
+      return res.status(400).json({
+        success: false,
+        error: {
+          code: 'INVALID_NFT_ID',
+          message: 'NFT ID must be a valid number between 0 and 9999',
+          timestamp: new Date().toISOString()
+        }
+      });
+    }
+    
+    // Check if NFT ID has already been minted
+    if (await isIdMinted(nftNumber)) {
+      return res.status(409).json({
+        success: false,
+        error: {
+          code: 'NFT_ALREADY_MINTED',
+          message: `NFT ID ${nftNumber} has already been minted`,
+          timestamp: new Date().toISOString()
+        }
+      });
+    }
+
+    // NFT MINTING PROCESS
+    const nftName = `SUPER SHIBA INU #${nftNumber.toString().padStart(4, '0')}`;
+
+    console.log(`Airdropping NFT: ${nftName} (${nftNumber})`);
+
+    const uintSig = await transactionBuilder()
+      .add(setComputeUnitLimit(umi, { units: 800_000 }))
+      .add(await mintToCollectionV1(umi, {
+        leafOwner: publicKey(userWallet),
+        merkleTree: merkleTreeLink,
+        collectionMint: collectionMint,
+        metadata: {
+          name: nftName,
+          uri: `https://peach-binding-gamefowl-763.mypinata.cloud/ipfs/bafybeierhdfp4xyd3qx6cb73y5e62vcvswelbrex3uxoygcrlfwrz5yipa/${nftNumber}.json`,
+          sellerFeeBasisPoints: 500,
+          collection: {
+            key: collectionMint,
+            verified: true
+          },
+          creators: [{
+            address: umi.identity.publicKey,
+            verified: true,
+            share: 100
+          }],
+        },
+      }));
+
+    const { signature: mintSignature } = await uintSig.sendAndConfirm(umi, {
+      confirm: { commitment: "finalized" },
+      send: {
+        skipPreflight: true,
+      }
+    });
+
+    const leaf = await parseLeafFromMintToCollectionV1Transaction(
+      umi,
+      mintSignature
+    );
+
+    const assetId = findLeafAssetIdPda(umi, {
+      merkleTree: merkleTreeLink,
+      leafIndex: leaf.nonce,
+    })[0];
+
+    console.log("NFT airdropped successfully:", {
+      nftNumber,
+      userWallet,
+      mintSignature: mintSignature
+    });
+
+    // Record the minted ID in our tracking system WITHOUT updating lastMintedId
+    await recordAirdropMintedId(nftNumber);
+
+    res.json({
+      success: true,
+      nftId: assetId,
+      imageUrl: `https://peach-binding-gamefowl-763.mypinata.cloud/ipfs/QmNyNq6J2MEiX5AiWsU8fpZM7PTAjACD4fgYku4w1tuo86/${nftNumber}.png`,
+      name: nftName,
+      details: {
+        airdropDetails: {
+          recipient: userWallet,
+          transactionId: mintSignature
+        }
+      }
+    });
+  } catch (error) {
+    console.error('Airdrop error:', {
+      error: error.message,
+      stack: error.stack,
+      body: req.body
+    });
+
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Airdrop failed',
+      details: error.details || null
+    });
+  }
+});
+
+async function recordAirdropMintedId(id) {
+  const trackingData = await loadMintTrackingData();
+  
+  // Add the ID to the array if it's not already there
+  if (!trackingData.mintedIds.includes(id)) {
+    trackingData.mintedIds.push(id);
+  }
+  
+  // Note: We do NOT update lastMintedId for airdrops
+  
+  // Write the updated data back to the file
+  await fs.writeFile(MINT_TRACKING_FILE, JSON.stringify(trackingData, null, 2));
+}
 
 app.post('/api/createMerkleTree', async (req, res) => {
   try {
@@ -381,8 +596,7 @@ app.post('/api/createCollection', async (req, res) => {
 
     const response = await createNft(umi, {
       mint: collectionMint,
-      name: `SUPER SHIBA INU NFT COLLECTION`,
-      symbol: 'SSHIB',
+      name: `SUPER SHIBA INU`,
       uri: 'https://peach-binding-gamefowl-763.mypinata.cloud/ipfs/bafkreiao4mgutekwxpnu33pigfqmgrieikjlij6lrboonyimbubygqfmzy',
       sellerFeeBasisPoints: percentAmount(0),
       isCollection: true,
@@ -442,8 +656,7 @@ app.post('/api/mintToCollection', async (req, res) => {
         merkleTree: merkleTreeLink,
         collectionMint: collectionMint, // This is your collection mint address
         metadata: {
-          name: "SUPER SHIBA INU NFT COLLECTION",
-          symbol: 'SSHIB',
+          name: "SUPER SHIBA INU",
           uri: "https://peach-binding-gamefowl-763.mypinata.cloud/ipfs/bafkreiao4mgutekwxpnu33pigfqmgrieikjlij6lrboonyimbubygqfmzy",
           sellerFeeBasisPoints: 0,
           collection: { key: collectionMint, verified: true },
