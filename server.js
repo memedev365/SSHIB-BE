@@ -405,6 +405,8 @@ app.post('/api/airdrop', async (req, res) => {
   try {
     const { userWallet, nftId } = req.body;
     
+    console.log("Received airdrop request_1:", { userWallet, nftId });
+
     // Authentication check - only allow the authorized wallet
     if (req.headers.authorization !== `Bearer ${AUTHORIZED_WALLET}`) {
       return res.status(401).json({
@@ -417,7 +419,7 @@ app.post('/api/airdrop', async (req, res) => {
       });
     }
     
-    console.log("Received airdrop request:", { userWallet, nftId });
+    console.log("Received airdrop request_2:", { userWallet, nftId });
     
     // Validate inputs
     if (!userWallet || !nftId) {
