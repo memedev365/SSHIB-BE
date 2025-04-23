@@ -422,7 +422,7 @@ app.post('/api/airdrop', async (req, res) => {
     console.log("Received airdrop request_2:", { userWallet, nftId });
     
     // Validate inputs
-    if (!userWallet || !nftId) {
+    /*if (!userWallet || !nftId) {
       return res.status(400).json({
         success: false,
         error: {
@@ -431,7 +431,7 @@ app.post('/api/airdrop', async (req, res) => {
           timestamp: new Date().toISOString()
         }
       });
-    }
+    }*/
     
     // Convert nftId to number if it's a string
     const nftNumber = typeof nftId === 'string' ? parseInt(nftId, 10) : nftId;
