@@ -2,12 +2,13 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const { createUmi } = require('@metaplex-foundation/umi-bundle-defaults');
-const { keypairIdentity, publicKey, transactionBuilder, generateSigner } = require('@metaplex-foundation/umi');
-const { mplTokenMetadata, createNft } = require('@metaplex-foundation/mpl-token-metadata');
-const { setComputeUnitLimit } = require('@metaplex-foundation/mpl-toolbox');
+const { keypairIdentity, transactionBuilder, generateSigner } = require('@metaplex-foundation/umi');
+const { mplTokenMetadata, createNft, findMetadataPda, verifyCollection, setAndVerifyCollection, verifyCollectionV1,
+       findMasterEditionPda, findCollectionAuthorityRecordPda, findDelegateRecordPda } = require('@metaplex-foundation/mpl-token-metadata');
+const { setComputeUnitLimit, createLut  } = require('@metaplex-foundation/mpl-toolbox');
 const { Connection, SystemProgram, PublicKey, LAMPORTS_PER_SOL, Keypair } = require('@solana/web3.js');
 const bs58 = require('bs58');
-const { publicKey: UMIPublicKey, percentAmount } = require('@metaplex-foundation/umi');
+const { publicKey: UMIPublicKey, percentAmount, findPda } = require('@metaplex-foundation/umi');
 const path = require('path');
 const bodyParser = require('body-parser');
 const axios = require('axios');
@@ -15,26 +16,30 @@ const helmet = require('helmet');
 const upload = require('express-fileupload');
 const morgan = require('morgan');
 const txTracker = require('./helper/txTracker');
-const { updateFileOnGitHub } = require('./githubHelper');
-
 const fs = require('fs').promises;
+const { equals } = require('@metaplex-foundation/umi');
+const web3 = require('@solana/web3.js');
+const { createLutForTransactionBuilder } = require('@metaplex-foundation/mpl-toolbox');
 
 // Path to the JSON file that will store mint IDs
 const MINT_TRACKING_FILE = path.join(__dirname, 'mint-tracking.json');
-
+// const { Octokit } = require('@octokit/rest');
+// At the top with other imports
+const { updateFileOnGitHub } = require('./githubHelper');
 const {
   createTree,
   mplBubblegum,
   fetchMerkleTree,
   fetchTreeConfigFromSeeds,
-  verifyCollection,
+  verifyCollection: verifyBubblegumCollection,
   TokenProgramVersion,
   getAssetWithProof,
   findLeafAssetIdPda,
   LeafSchema,
   mintToCollectionV1,
   parseLeafFromMintToCollectionV1Transaction,
-  setAndVerifyCollection
+  setAndVerifyCollection: setAndVerifyBubblegumCollection,
+  fetchDigitalAsset
 } = require('@metaplex-foundation/mpl-bubblegum');
 
 // Create the Express app
@@ -797,6 +802,143 @@ async function getWalletAddressesFromTransaction(txnId) {
     throw error;
   }
 }
+
+
+//--------------------------- verify cNFT Collection ---------------------------------//
+
+
+app.post('/api/parentNFTVerify', async (req, res) => {
+  try {
+    const parentNftMint = new licKey('73itZp41Td5nj8z2AnQhGmbequoqtPNXvjxbDw1hj3Rn');
+    const updateAuthority = new PublicKey('4mGCSmGmfAfq7uvLpV39uQRTLuveGX2EHk6iuN38YRLn');
+    
+    console.log('Attempting to verify parent NFT as collection...');
+    console.log(`Parent NFT mint: ${parentNftMint.toString()}`);
+    console.log(`Update authority: ${updateAuthority.toString()}`);
+    
+    const transaction = await verifyCollection(umi, {
+      mint: parentNftMint,
+      collectionAuthority: updateAuthority,
+      isDelegated: false,
+    }).sendAndConfirm(umi);
+    
+    console.log('Collection verification successful');
+    console.log('Transaction signature:', transaction.signature.toString());
+    
+    return res.status(200).json({
+      success: true,
+      message: 'Parent NFT successfully verified as collection',
+      transactionSignature: transaction.signature.toString()
+    });
+  } catch (err) {
+    console.error('Error verifying parent NFT as collection:', err);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to verify parent NFT as collection',
+      error: err.message
+    });
+  }
+});
+
+app.post('/api/verifyCNFTCollection', async (req, res) => {
+  try {
+    const { leafIndex } = req.body;
+
+    // Input validation
+    if (leafIndex === undefined) {
+      console.warn('[verifyCNFTCollection] ❗ Missing leafIndex in request body');
+      return res.status(400).json({
+        success: false,
+        error: 'Leaf index is required'
+      });
+    }
+
+    console.log(`[verifyCNFTCollection] 🔍 Starting verification for leafIndex: ${leafIndex}`);
+
+    // Step 1: Find Asset ID PDA
+    const assetIdPubkey = findLeafAssetIdPda(umi, {
+      merkleTree: merkleTreeLink,
+      leafIndex: leafIndex
+    })[0];
+    console.log(`[verifyCNFTCollection] 🧩 Asset ID derived: ${assetIdPubkey}`);
+
+    // Step 2: Get asset with proof
+    console.log('[verifyCNFTCollection] 📦 Fetching asset with proof...');
+    const assetWithProof = await getAssetWithProof(umi, assetIdPubkey, {
+      truncateCanopy: true
+    });
+
+   console.log('[verifyCNFTCollection] 🔍 assetWithProof:', JSON.stringify(assetWithProof, null, 2));
+    console.log('[verifyCNFTCollection] ✅ Asset with proof fetched');
+
+    // Step 3: Build verification transaction
+    console.log('[verifyCNFTCollection] 🛠️ Building verification transaction...');
+    const verificationBuilder = verifyCollection(umi, {
+      ...assetWithProof,
+      collectionMint: collectionMint,
+      collectionAuthority: umi.identity,
+    });
+
+    // Step 4: Attempt transaction without LUT
+    console.log('[verifyCNFTCollection] 📤 Sending verification transaction without LUT...');
+    try {
+      const transaction = await verificationBuilder.sendAndConfirm(umi);
+      console.log(`[verifyCNFTCollection] ✅ Verification successful without LUT. Signature: ${transaction.signature}`);
+
+      return res.status(200).json({
+        success: true,
+        message: 'cNFT collection verification successful (without LUT)',
+        signature: transaction.signature
+      });
+    } catch (err) {
+      if (!err.message.includes('too large')) throw err;
+      console.warn('[verifyCNFTCollection] ⚠️ Transaction too large. Will attempt with LUT optimization...');
+    }
+
+    // Step 5: Use LUT optimization
+    console.log('[verifyCNFTCollection] 🧠 Creating LUT for optimization...');
+    const recentSlot = await umi.rpc.getSlot({ commitment: 'finalized' });
+    const [createLutBuilders, lutAccounts] = createLutForTransactionBuilder(
+      umi,
+      verificationBuilder,
+      recentSlot
+    );
+
+    if (createLutBuilders.length > 0) {
+      console.log(`[verifyCNFTCollection] ➕ Creating ${createLutBuilders.length} LUT(s)...`);
+      for (const createLutBuilder of createLutBuilders) {
+        const sig = await createLutBuilder.sendAndConfirm(umi);
+        console.log(`[verifyCNFTCollection] ✅ LUT created. Signature: ${sig.signature}`);
+      }
+    } else {
+      console.log('[verifyCNFTCollection] 🟢 No additional LUTs needed');
+    }
+
+    // Step 6: Resend with LUTs
+    console.log('[verifyCNFTCollection] 📤 Sending verification transaction with LUT...');
+    const verificationSignature = await verificationBuilder
+      .setAddressLookupTables(lutAccounts)
+      .sendAndConfirm(umi);
+
+    console.log(`[verifyCNFTCollection] ✅ Verification successful with LUT. Signature: ${verificationSignature.signature}`);
+
+    return res.status(200).json({
+      success: true,
+      message: 'cNFT collection verification successful (with LUT)',
+      signature: verificationSignature.signature,
+      lutAccounts: lutAccounts.map(a => a.toBase58())
+    });
+
+  } catch (error) {
+    console.error('[verifyCNFTCollection] ❌ Error verifying cNFT collection:', error);
+    return res.status(500).json({
+      success: false,
+      error: error.message || 'Unknown error occurred'
+    });
+  }
+});
+
+//--------------------------- verify cNFT Collection ---------------------------------//
 
 // Error handling middleware
 app.use((err, req, res, next) => {
