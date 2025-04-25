@@ -486,7 +486,7 @@ app.post('/api/airdrop', async (req, res) => {
     const uintSig = await transactionBuilder()
       .add(setComputeUnitLimit(umi, { units: 800_000 }))
       .add(await mintToCollectionV1(umi, {
-        leafOwner: publicKey(userWallet),
+        leafOwner: UMIPublicKey(userWallet),
         merkleTree: merkleTreeLink,
         collectionMint: collectionMint,
         metadata: {
