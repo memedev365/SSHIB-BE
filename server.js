@@ -348,7 +348,7 @@ app.post('/api/mint', async (req, res) => {
         metadata: {
           name: nftName,
           symbol:'SSHIB',
-          uri: `https://peach-binding-gamefowl-763.mypinata.cloud/ipfs/bafybeiguitrsayqws7uokhdimc52nf4fxszlsu7oc36loeukkbg5zpyuai/${nftNumber}.json`,
+          uri: `https://peach-binding-gamefowl-763.mypinata.cloud/ipfs/bafybeierhdfp4xyd3qx6cb73y5e62vcvswelbrex3uxoygcrlfwrz5yipa/${nftNumber}.json`,
           sellerFeeBasisPoints: 500,
           collection: {
             key: collectionMint,
@@ -491,7 +491,7 @@ app.post('/api/airdrop', async (req, res) => {
         collectionMint: collectionMint,
         metadata: {
           name: nftName,
-          uri: `https://peach-binding-gamefowl-763.mypinata.cloud/ipfs/bafybeiguitrsayqws7uokhdimc52nf4fxszlsu7oc36loeukkbg5zpyuai/${nftNumber}.json`,
+          uri: `https://peach-binding-gamefowl-763.mypinata.cloud/ipfs/bafybeierhdfp4xyd3qx6cb73y5e62vcvswelbrex3uxoygcrlfwrz5yipa/${nftNumber}.json`,
           sellerFeeBasisPoints: 500,
           collection: {
             key: collectionMint,
